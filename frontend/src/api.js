@@ -7,9 +7,11 @@ const api = axios.create({
   timeout: 120000, // 2 minute timeout for large documents
 });
 
-export const uploadDocument = async (file, onProgress) => {
+export const uploadDocument = async (file, onProgress, chunkSize, chunkOverlap) => {
   const formData = new FormData();
   formData.append('file', file);
+  if (chunkSize) formData.append('chunk_size', chunkSize);
+  if (chunkOverlap) formData.append('chunk_overlap', chunkOverlap);
 
   const response = await api.post('/documents/upload', formData, {
     headers: { 'Content-Type': 'multipart/form-data' },
@@ -26,8 +28,22 @@ export const uploadDocument = async (file, onProgress) => {
   return response.data;
 };
 
+export const submitTextDocument = async (title, content, chunkSize, chunkOverlap) => {
+  const payload = { title, content };
+  if (chunkSize) payload.chunk_size = parseInt(chunkSize);
+  if (chunkOverlap) payload.chunk_overlap = parseInt(chunkOverlap);
+
+  const response = await api.post('/documents/text', payload);
+  return response.data;
+};
+
 export const getDocuments = async () => {
   const response = await api.get('/documents');
+  return response.data;
+};
+
+export const getConfig = async () => {
+  const response = await api.get('/config');
   return response.data;
 };
 

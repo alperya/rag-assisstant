@@ -16,9 +16,16 @@ class DocumentProcessor:
 
     def __init__(self):
         settings = get_settings()
-        self.text_splitter = RecursiveCharacterTextSplitter(
-            chunk_size=settings.chunk_size,
-            chunk_overlap=settings.chunk_overlap,
+        self.default_chunk_size = settings.chunk_size
+        self.default_chunk_overlap = settings.chunk_overlap
+
+    def _get_splitter(self, chunk_size: int | None = None, chunk_overlap: int | None = None):
+        """Create a text splitter with given or default params."""
+        cs = chunk_size if chunk_size and chunk_size > 0 else self.default_chunk_size
+        co = chunk_overlap if chunk_overlap and chunk_overlap >= 0 else self.default_chunk_overlap
+        return RecursiveCharacterTextSplitter(
+            chunk_size=cs,
+            chunk_overlap=co,
             length_function=len,
             separators=["\n\n", "\n", ". ", " ", ""],
         )
@@ -113,7 +120,34 @@ class DocumentProcessor:
 
         return documents, len(pages)
 
-    def process_file(self, file_path: str, filename: str) -> tuple[list[Document], Optional[int]]:
+    def process_text_input(self, text: str, title: str) -> tuple[list[Document], int]:
+        """Process plain text input from user."""
+        page_size = 3000
+        pages = [text[i : i + page_size] for i in range(0, len(text), page_size)]
+        documents = []
+
+        for page_num, page_text in enumerate(pages, start=1):
+            if page_text.strip():
+                documents.append(
+                    Document(
+                        page_content=page_text.strip(),
+                        metadata={
+                            "source": title,
+                            "page": page_num,
+                            "file_type": "text",
+                        },
+                    )
+                )
+
+        return documents, len(pages)
+
+    def process_file(
+        self,
+        file_path: str,
+        filename: str,
+        chunk_size: int | None = None,
+        chunk_overlap: int | None = None,
+    ) -> tuple[list[Document], Optional[int], str]:
         """Process a file based on its extension."""
         ext = os.path.splitext(filename)[1].lower()
 
@@ -127,9 +161,29 @@ class DocumentProcessor:
             raise ValueError(f"Unsupported file type: {ext}")
 
         # Split into chunks while preserving metadata
-        chunks = self.text_splitter.split_documents(raw_docs)
+        splitter = self._get_splitter(chunk_size, chunk_overlap)
+        chunks = splitter.split_documents(raw_docs)
 
         # Ensure each chunk has the document ID
+        doc_id = str(uuid.uuid4())
+        for chunk in chunks:
+            chunk.metadata["doc_id"] = doc_id
+
+        return chunks, page_count, doc_id
+
+    def process_raw_text(
+        self,
+        text: str,
+        title: str,
+        chunk_size: int | None = None,
+        chunk_overlap: int | None = None,
+    ) -> tuple[list[Document], int, str]:
+        """Process plain text with chunking."""
+        raw_docs, page_count = self.process_text_input(text, title)
+
+        splitter = self._get_splitter(chunk_size, chunk_overlap)
+        chunks = splitter.split_documents(raw_docs)
+
         doc_id = str(uuid.uuid4())
         for chunk in chunks:
             chunk.metadata["doc_id"] = doc_id

@@ -4,13 +4,13 @@ import shutil
 from datetime import datetime, timezone
 from pathlib import Path
 
-from fastapi import FastAPI, UploadFile, File, HTTPException, Depends
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 
 from app.config import get_settings, Settings
-from app.models import DocumentInfo, ChatRequest, ChatResponse, DeleteResponse
+from app.models import DocumentInfo, ChatRequest, ChatResponse, DeleteResponse, TextInputRequest
 from app.document_processor import DocumentProcessor
 from app.vector_store import VectorStoreManager
 from app.rag_chain import RAGChain
@@ -63,8 +63,22 @@ async def health_check():
     }
 
 
+@app.get("/api/config")
+async def get_config():
+    """Return default chunk configuration."""
+    settings = get_settings()
+    return {
+        "chunk_size": settings.chunk_size,
+        "chunk_overlap": settings.chunk_overlap,
+    }
+
+
 @app.post("/api/documents/upload", response_model=DocumentInfo)
-async def upload_document(file: UploadFile = File(...)):
+async def upload_document(
+    file: UploadFile = File(...),
+    chunk_size: int | None = Form(None),
+    chunk_overlap: int | None = Form(None),
+):
     """Upload and process a document."""
     settings = get_settings()
 
@@ -96,7 +110,9 @@ async def upload_document(file: UploadFile = File(...)):
 
     try:
         # Process document
-        chunks, page_count, doc_id = processor.process_file(file_path, file.filename)
+        chunks, page_count, doc_id = processor.process_file(
+            file_path, file.filename, chunk_size, chunk_overlap
+        )
 
         # Add to vector store
         vector_store.add_documents(chunks)
@@ -126,6 +142,41 @@ async def upload_document(file: UploadFile = File(...)):
 async def list_documents():
     """List all uploaded documents."""
     return list(document_registry.values())
+
+
+@app.post("/api/documents/text", response_model=DocumentInfo)
+async def add_text_document(request: TextInputRequest):
+    """Add a plain text document."""
+    if not request.content.strip():
+        raise HTTPException(status_code=400, detail="Text content cannot be empty.")
+    if not request.title.strip():
+        raise HTTPException(status_code=400, detail="Title cannot be empty.")
+
+    try:
+        chunks, page_count, doc_id = processor.process_raw_text(
+            text=request.content,
+            title=request.title,
+            chunk_size=request.chunk_size,
+            chunk_overlap=request.chunk_overlap,
+        )
+
+        vector_store.add_documents(chunks)
+
+        doc_info = DocumentInfo(
+            id=doc_id,
+            filename=request.title,
+            file_type="text",
+            page_count=page_count,
+            chunk_count=len(chunks),
+            uploaded_at=datetime.now(timezone.utc).isoformat(),
+            size_bytes=len(request.content.encode("utf-8")),
+        )
+        document_registry[doc_id] = doc_info
+
+        return doc_info
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error processing text: {str(e)}")
 
 
 @app.delete("/api/documents/{doc_id}", response_model=DeleteResponse)

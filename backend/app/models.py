@@ -13,6 +13,13 @@ class DocumentInfo(BaseModel):
     size_bytes: int
 
 
+class TextInputRequest(BaseModel):
+    title: str
+    content: str
+    chunk_size: Optional[int] = None
+    chunk_overlap: Optional[int] = None
+
+
 class ChatRequest(BaseModel):
     question: str
     document_ids: Optional[list[str]] = None
