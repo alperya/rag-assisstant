@@ -100,58 +100,98 @@ docker compose up -d --build
 
 ## Deployment on rag.alperyasemin.com
 
-This project is deployed on **Render.com** with **Cloudflare DNS**.
+Deployed on **AWS EC2 Free Tier** with **Cloudflare Tunnel** (no open ports needed, free SSL).
 
-### Step 1: Push to GitHub
+### Prerequisites
+
+- AWS account (Free Tier eligible)
+- Cloudflare account with `alperyasemin.com` domain
+
+### Step 1: Launch EC2 Instance
+
+1. Go to [AWS Console](https://console.aws.amazon.com/ec2) → **Launch Instance**
+2. Settings:
+   - **Name**: `rag-assistant`
+   - **AMI**: Ubuntu 22.04 LTS (Free Tier eligible)
+   - **Instance type**: `t2.micro` (Free Tier — 1 vCPU, 1GB RAM)
+   - **Key pair**: Create or select an existing key pair
+   - **Security Group**: Allow only **SSH (port 22)** — no other ports needed (Cloudflare Tunnel handles everything)
+   - **Storage**: 20 GB gp3 (Free Tier allows up to 30GB)
+3. Click **Launch Instance**
+
+### Step 2: SSH & Run Setup Script
 
 ```bash
-git init
-git add .
-git commit -m "Initial commit"
-gh repo create rag-assistant --private --push
+ssh -i your-key.pem ubuntu@<EC2_PUBLIC_IP>
+
+# Download and run setup script
+curl -fsSL https://raw.githubusercontent.com/alperya/rag-assisstant/main/deploy/setup-ec2.sh | bash
+
+# Log out and back in for Docker group permissions
+exit
+ssh -i your-key.pem ubuntu@<EC2_PUBLIC_IP>
 ```
 
-### Step 2: Deploy on Render
-
-1. Go to [render.com](https://render.com) → **New** → **Blueprint**
-2. Connect your GitHub repository
-3. Render will auto-detect `render.yaml` and configure the service
-4. Set `ANTHROPIC_API_KEY` in the Render dashboard (Environment tab)
-5. Click **Apply** — Render will build and deploy automatically
-6. Note your Render service URL (e.g., `rag-assistant-xxxx.onrender.com`)
-
-### Step 3: Cloudflare DNS
-
-1. Go to [Cloudflare Dashboard](https://dash.cloudflare.com) → `alperyasemin.com` → **DNS**
-2. Add a **CNAME** record:
-   - **Name**: `rag`
-   - **Target**: `rag-assistant-xxxx.onrender.com` (your Render URL)
-   - **Proxy status**: DNS only (grey cloud) — Render handles SSL
-3. In Render dashboard → **Settings** → **Custom Domains** → Add `rag.alperyasemin.com`
-4. Render will auto-provision an SSL certificate
-
-### Alternative: Docker on VPS
+### Step 3: Configure & Build
 
 ```bash
-# On your server (DigitalOcean, AWS EC2, etc.)
-git clone <your-repo> /opt/rag-assistant
 cd /opt/rag-assistant
-cp backend/.env.example backend/.env
-nano backend/.env  # Set ANTHROPIC_API_KEY
 
-# Single-container production build
-docker build -t rag-assistant .
-docker run -d -p 80:8000 --name rag \
-  -v rag_data:/app/chroma_data \
-  -v rag_uploads:/app/uploads \
-  --env-file backend/.env \
-  rag-assistant
+# Set your Anthropic API key
+nano backend/.env
 
-# Or multi-container with nginx
-docker compose up -d --build
+# Build and start (first build takes ~5 min)
+docker compose -f docker-compose.prod.yml up -d --build
+
+# Verify it's running
+curl http://localhost:8000/api/health
 ```
 
-Then in Cloudflare, add an **A record**: `rag` → your server IP.
+### Step 4: Set Up Cloudflare Tunnel
+
+```bash
+# 1. Login to Cloudflare (opens browser link to authorize)
+cloudflared tunnel login
+
+# 2. Create tunnel
+cloudflared tunnel create rag-assistant
+
+# 3. Copy and edit config (replace <TUNNEL_ID> with actual ID from step 2)
+mkdir -p ~/.cloudflared
+cp /opt/rag-assistant/deploy/cloudflared-config.yml ~/.cloudflared/config.yml
+nano ~/.cloudflared/config.yml
+
+# 4. Create DNS route (auto-adds CNAME in Cloudflare)
+cloudflared tunnel route dns rag-assistant rag.alperyasemin.com
+
+# 5. Install as system service & start
+sudo cloudflared service install
+sudo systemctl start cloudflared
+sudo systemctl enable cloudflared
+```
+
+### Step 5: Verify
+
+Your app is now live at **https://rag.alperyasemin.com** 🎉
+
+```bash
+# Check tunnel status
+sudo systemctl status cloudflared
+
+# Check app status
+docker compose -f docker-compose.prod.yml ps
+
+# View logs
+docker compose -f docker-compose.prod.yml logs -f
+```
+
+### Updating the App
+
+```bash
+cd /opt/rag-assistant
+git pull
+docker compose -f docker-compose.prod.yml up -d --build
+```
 
 ## API Endpoints
 
