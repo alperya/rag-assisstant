@@ -1,10 +1,24 @@
 import os
 import chromadb
+from chromadb.utils.embedding_functions import DefaultEmbeddingFunction
 from langchain_chroma import Chroma
-from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_core.documents import Document
 
 from app.config import get_settings
+
+
+class ChromaDefaultEmbeddings:
+    """Wrapper to use ChromaDB's built-in embedding (all-MiniLM-L6-v2 via onnxruntime).
+    Much lighter than sentence-transformers+PyTorch (~80MB vs ~2GB)."""
+
+    def __init__(self):
+        self._ef = DefaultEmbeddingFunction()
+
+    def embed_documents(self, texts: list[str]) -> list[list[float]]:
+        return self._ef(texts)
+
+    def embed_query(self, text: str) -> list[float]:
+        return self._ef([text])[0]
 
 
 class VectorStoreManager:
@@ -15,9 +29,7 @@ class VectorStoreManager:
         self.persist_dir = settings.chroma_persist_dir
         os.makedirs(self.persist_dir, exist_ok=True)
 
-        self.embeddings = HuggingFaceEmbeddings(
-            model_name=settings.embedding_model,
-        )
+        self.embeddings = ChromaDefaultEmbeddings()
 
         self.client = chromadb.PersistentClient(path=self.persist_dir)
 
@@ -47,7 +59,7 @@ class VectorStoreManager:
         if doc_ids:
             search_kwargs["filter"] = {"doc_id": {"$in": doc_ids}}
 
-        # 1. Semantic search (no score filtering — HuggingFace scores can be negative)
+        # 1. Semantic search
         semantic_docs = self.vectorstore.similarity_search(query, **search_kwargs)
 
         # 2. Keyword fallback: search for exact terms in documents

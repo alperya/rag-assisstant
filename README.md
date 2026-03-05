@@ -18,7 +18,7 @@ A full-stack Retrieval-Augmented Generation (RAG) assistant for corporate docume
 | Backend        | Python 3.11+, FastAPI, LangChain               |
 | Vector Store   | ChromaDB (persistent, local)                   |
 | LLM            | Anthropic Claude (claude-sonnet-4-20250514)            |
-| Embeddings     | HuggingFace all-MiniLM-L6-v2 (local, free)    |
+| Embeddings     | ChromaDB built-in all-MiniLM-L6-v2 (ONNX, local, free) |
 | Frontend       | React 18, Vite, TailwindCSS                    |
 | Infrastructure | Docker, Nginx, Cloudflare                      |
 
@@ -209,7 +209,7 @@ docker compose -f docker-compose.prod.yml up -d --build
 | -------------------- | -------------------------- | --------------------------------- |
 | `ANTHROPIC_API_KEY`  | —                          | Your Anthropic API key (required) |
 | `LLM_MODEL`          | `claude-sonnet-4-20250514`         | Claude model for answers          |
-| `EMBEDDING_MODEL`    | `all-MiniLM-L6-v2`        | HuggingFace embedding model       |
+| `EMBEDDING_MODEL`    | `all-MiniLM-L6-v2`        | ChromaDB default embedding model  |
 | `CHUNK_SIZE`         | `1500`                     | Text chunk size (chars)           |
 | `CHUNK_OVERLAP`      | `300`                      | Chunk overlap (chars)             |
 | `MAX_FILE_SIZE_MB`   | `50`                       | Max upload file size              |
