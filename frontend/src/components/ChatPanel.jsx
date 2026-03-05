@@ -59,7 +59,7 @@ function ChatMessage({ message }) {
       </div>
 
       {/* Message Bubble */}
-      <div className={`max-w-[75%] ${isUser ? 'items-end' : 'items-start'}`}>
+      <div className={`max-w-[85%] sm:max-w-[75%] ${isUser ? 'items-end' : 'items-start'}`}>
         <div
           className={`rounded-2xl px-4 py-3 ${
             isUser
@@ -193,8 +193,8 @@ export default function ChatPanel({ documents }) {
 
   return (
     <div className="h-full flex flex-col bg-slate-50">
-      {/* Header */}
-      <div className="bg-white border-b border-slate-200 px-6 py-4">
+      {/* Header — hidden on mobile (bottom tab acts as nav) */}
+      <div className="bg-white border-b border-slate-200 px-4 sm:px-6 py-3 sm:py-4 hidden md:block">
         <h2 className="text-lg font-semibold text-slate-800 flex items-center gap-2">
           <Bot className="w-5 h-5 text-primary-600" />
           RAG Assistant
@@ -205,7 +205,7 @@ export default function ChatPanel({ documents }) {
       </div>
 
       {/* Messages */}
-      <div className="flex-1 overflow-y-auto px-6 py-4 space-y-6">
+      <div className="flex-1 overflow-y-auto px-3 sm:px-6 py-4 space-y-4 sm:space-y-6">
         {messages.map((msg, i) => (
           <ChatMessage key={i} message={msg} />
         ))}
@@ -228,8 +228,8 @@ export default function ChatPanel({ documents }) {
       </div>
 
       {/* Input */}
-      <div className="bg-white border-t border-slate-200 p-4">
-        <div className="flex items-end gap-3 max-w-4xl mx-auto">
+      <div className="bg-white border-t border-slate-200 p-3 sm:p-4">
+        <div className="flex items-end gap-2 sm:gap-3 max-w-4xl mx-auto">
           <div className="flex-1 relative">
             <textarea
               ref={inputRef}

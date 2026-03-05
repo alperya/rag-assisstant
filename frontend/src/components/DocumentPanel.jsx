@@ -168,8 +168,8 @@ export default function DocumentPanel({ documents, onDocumentsChange }) {
 
   return (
     <div className="h-full flex flex-col bg-white">
-      {/* Header */}
-      <div className="p-4 border-b border-slate-200">
+      {/* Header — hidden on mobile, tab bar shows label */}
+      <div className="hidden md:block p-4 border-b border-slate-200">
         <h2 className="text-lg font-semibold text-slate-800 flex items-center gap-2">
           <FileText className="w-5 h-5 text-primary-600" />
           Documents
@@ -181,7 +181,7 @@ export default function DocumentPanel({ documents, onDocumentsChange }) {
 
       <div className="flex-1 overflow-y-auto">
         {/* Upload Area */}
-        <div className="p-4 pb-2">
+        <div className="p-3 sm:p-4 pb-2">
           <div
             className={`border-2 border-dashed rounded-xl p-5 text-center cursor-pointer transition-all duration-200 ${
               dragOver
@@ -226,7 +226,7 @@ export default function DocumentPanel({ documents, onDocumentsChange }) {
         </div>
 
         {/* Text Input Section */}
-        <div className="px-4 pb-2">
+        <div className="px-3 sm:px-4 pb-2">
           <button
             onClick={() => setShowTextInput(!showTextInput)}
             className="flex items-center gap-2 text-sm font-medium text-slate-600 hover:text-primary-600 transition-colors w-full py-1.5"
@@ -269,7 +269,7 @@ export default function DocumentPanel({ documents, onDocumentsChange }) {
         </div>
 
         {/* Chunk Settings Section */}
-        <div className="px-4 pb-2">
+        <div className="px-3 sm:px-4 pb-2">
           <button
             onClick={() => setShowSettings(!showSettings)}
             className="flex items-center gap-2 text-sm font-medium text-slate-600 hover:text-primary-600 transition-colors w-full py-1.5"
@@ -353,7 +353,7 @@ export default function DocumentPanel({ documents, onDocumentsChange }) {
         )}
 
         {/* Document List */}
-        <div className="px-4 pb-4">
+        <div className="px-3 sm:px-4 pb-4">
           {documents.length === 0 ? (
             <div className="text-center py-6">
               <File className="w-10 h-10 text-slate-300 mx-auto mb-2" />
@@ -397,7 +397,7 @@ export default function DocumentPanel({ documents, onDocumentsChange }) {
                     </div>
                     <button
                       onClick={() => handleDelete(doc.id, doc.filename)}
-                      className="opacity-0 group-hover:opacity-100 p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-md transition-all"
+                      className="opacity-100 md:opacity-0 group-hover:opacity-100 p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-md transition-all"
                       title="Delete document"
                     >
                       <Trash2 className="w-4 h-4" />

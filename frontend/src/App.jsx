@@ -2,10 +2,11 @@ import { useState, useEffect, useCallback } from 'react';
 import DocumentPanel from './components/DocumentPanel';
 import ChatPanel from './components/ChatPanel';
 import { getDocuments } from './api';
-import { BookOpenCheck } from 'lucide-react';
+import { BookOpenCheck, FileText, MessageSquare } from 'lucide-react';
 
 export default function App() {
   const [documents, setDocuments] = useState([]);
+  const [activeTab, setActiveTab] = useState('chat'); // mobile tab: 'chat' | 'docs'
   const [sidebarOpen, setSidebarOpen] = useState(true);
 
   const fetchDocuments = useCallback(async () => {
@@ -32,21 +33,17 @@ export default function App() {
             Corporate Document Analysis
           </span>
         </div>
-        <button
-          onClick={() => setSidebarOpen(!sidebarOpen)}
-          className="sm:hidden p-2 text-slate-500 hover:text-slate-700 rounded-lg hover:bg-slate-100"
-        >
-          {sidebarOpen ? 'Hide Docs' : 'Show Docs'}
-        </button>
       </header>
 
       {/* Main Content */}
       <div className="flex-1 flex overflow-hidden">
-        {/* Document Panel (Left) */}
+        {/* Document Panel — full screen on mobile when active, fixed sidebar on desktop */}
         <div
-          className={`${
-            sidebarOpen ? 'w-80 lg:w-96' : 'w-0'
-          } flex-shrink-0 border-r border-slate-200 transition-all duration-300 overflow-hidden`}
+          className={`
+            border-r border-slate-200 overflow-hidden transition-all duration-300
+            ${activeTab === 'docs' ? 'max-md:w-full max-md:flex-1' : 'max-md:w-0 max-md:hidden'}
+            md:w-80 lg:w-96 md:flex-shrink-0
+          `}
         >
           <DocumentPanel
             documents={documents}
@@ -54,11 +51,47 @@ export default function App() {
           />
         </div>
 
-        {/* Chat Panel (Right) */}
-        <div className="flex-1 min-w-0">
+        {/* Chat Panel — full screen on mobile when active, always visible on desktop */}
+        <div
+          className={`
+            flex-1 min-w-0
+            ${activeTab === 'chat' ? 'max-md:flex max-md:flex-col' : 'max-md:hidden'}
+          `}
+        >
           <ChatPanel documents={documents} />
         </div>
       </div>
+
+      {/* Mobile Bottom Tab Bar */}
+      <nav className="md:hidden bg-white border-t border-slate-200 flex flex-shrink-0 safe-bottom">
+        <button
+          onClick={() => setActiveTab('chat')}
+          className={`flex-1 flex flex-col items-center gap-0.5 py-2 text-xs font-medium transition-colors ${
+            activeTab === 'chat'
+              ? 'text-primary-600'
+              : 'text-slate-400 hover:text-slate-600'
+          }`}
+        >
+          <MessageSquare className="w-5 h-5" />
+          Chat
+        </button>
+        <button
+          onClick={() => setActiveTab('docs')}
+          className={`flex-1 flex flex-col items-center gap-0.5 py-2 text-xs font-medium transition-colors relative ${
+            activeTab === 'docs'
+              ? 'text-primary-600'
+              : 'text-slate-400 hover:text-slate-600'
+          }`}
+        >
+          <FileText className="w-5 h-5" />
+          Documents
+          {documents.length > 0 && (
+            <span className="absolute top-1.5 right-1/4 w-4 h-4 bg-primary-600 text-white text-[10px] font-bold rounded-full flex items-center justify-center">
+              {documents.length}
+            </span>
+          )}
+        </button>
+      </nav>
     </div>
   );
 }
