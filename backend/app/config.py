@@ -11,7 +11,6 @@ class Settings(BaseSettings):
     chunk_size: int = 1500
     chunk_overlap: int = 300
     llm_model: str = "claude-sonnet-4-20250514"
-    embedding_model: str = "all-MiniLM-L6-v2"
 
     class Config:
         env_file = ".env"

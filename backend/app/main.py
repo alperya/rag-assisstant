@@ -1,15 +1,14 @@
 import os
 import uuid
-import shutil
 from datetime import datetime, timezone
 from pathlib import Path
 
-from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Depends
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 
-from app.config import get_settings, Settings
+from app.config import get_settings
 from app.models import DocumentInfo, ChatRequest, ChatResponse, DeleteResponse, TextInputRequest
 from app.document_processor import DocumentProcessor
 from app.vector_store import VectorStoreManager
@@ -47,11 +46,6 @@ async def startup():
 
 
 ALLOWED_EXTENSIONS = {".pdf", ".docx", ".txt"}
-ALLOWED_MIME_TYPES = {
-    "application/pdf",
-    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-    "text/plain",
-}
 
 
 @app.get("/api/health")

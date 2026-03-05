@@ -1,26 +1,77 @@
 # RAG Assistant
 
-A full-stack Retrieval-Augmented Generation (RAG) assistant for corporate document analysis. Upload PDF, Word, or TXT documents and ask questions — the assistant answers with source citations and hallucination guardrails.
+A full-stack **Retrieval-Augmented Generation** assistant for corporate documents. Upload PDF, Word, or TXT files (or paste raw text), then ask questions — the AI answers using **only** the content from your documents, with source citations and confidence scoring.
 
-## Features
+**Live:** [https://rag.alperyasemin.com](https://rag.alperyasemin.com)
 
-- **Document Upload** — PDF, DOCX, TXT support with drag & drop
-- **Intelligent Q&A** — Ask questions about uploaded documents
-- **Source Citations** — Every answer shows document name and page number
-- **Hallucination Guardrail** — Answers are strictly grounded in uploaded documents
-- **Confidence Scoring** — High / Medium / Low confidence indicators
-- **Modern UI** — Split-panel layout with document manager and chat interface
+![Python](https://img.shields.io/badge/Python-3.11-blue)
+![FastAPI](https://img.shields.io/badge/FastAPI-0.115-green)
+![React](https://img.shields.io/badge/React-18-blue)
+![Claude](https://img.shields.io/badge/Anthropic-Claude-orange)
+
+---
+
+## How It Works
+
+```
+┌─────────────────────────────────────────────────────────┐
+│                      User Interface                      │
+│  ┌──────────────────┐  ┌──────────────────────────────┐ │
+│  │  Document Panel   │  │        Chat Panel             │ │
+│  │  - File upload    │  │  - Ask questions              │ │
+│  │  - Text input     │  │  - Get answers with sources   │ │
+│  │  - Chunk settings │  │  - Confidence badges          │ │
+│  └──────────────────┘  └──────────────────────────────┘ │
+└─────────────────────┬───────────────────────────────────┘
+                      │ HTTP API
+┌─────────────────────▼───────────────────────────────────┐
+│                    FastAPI Backend                        │
+│                                                          │
+│  1. UPLOAD → Parse document (PDF/DOCX/TXT/text)         │
+│  2. CHUNK  → Split into overlapping text chunks          │
+│  3. EMBED  → Convert chunks to vectors (all-MiniLM-L6)  │
+│  4. STORE  → Save vectors in ChromaDB                    │
+│  5. QUERY  → Hybrid search (semantic + keyword)          │
+│  6. ANSWER → Claude generates answer from context only   │
+│  7. CHECK  → Hallucination guardrail validates answer    │
+│  8. CITE   → Extract source references with page numbers │
+└─────────────────────────────────────────────────────────┘
+```
+
+### RAG Pipeline in Detail
+
+1. **Document Processing** — Files are parsed into page-level text blocks:
+   - PDF: extracted page-by-page using `pypdf`
+   - DOCX: paragraphs grouped into ~3000-char estimated pages
+   - TXT/Text: split into ~3000-char blocks
+
+2. **Chunking** — Each page block is split into smaller, overlapping chunks using `RecursiveCharacterTextSplitter`. Default: 1500 chars with 300-char overlap. Users can customize these values per upload.
+
+3. **Embedding** — Chunks are converted to 384-dimensional vectors using ChromaDB's built-in `all-MiniLM-L6-v2` model (ONNX runtime, ~80MB — no PyTorch needed).
+
+4. **Hybrid Search** — When a question is asked, two search strategies run in parallel:
+   - **Semantic search**: cosine similarity between question embedding and stored vectors
+   - **Keyword fallback**: exact keyword matching via ChromaDB's `$contains` filter
+   - Results are merged and deduplicated
+
+5. **Answer Generation** — Retrieved chunks are formatted as context and sent to Claude with a strict system prompt that forbids hallucination. The model can only use information present in the context.
+
+6. **Confidence Evaluation** — A second Claude call rates confidence as high/medium/low based on how well the context supports the answer.
+
+---
 
 ## Tech Stack
 
-| Layer          | Technology                                     |
-| -------------- | ---------------------------------------------- |
-| Backend        | Python 3.11+, FastAPI, LangChain               |
-| Vector Store   | ChromaDB (persistent, local)                   |
-| LLM            | Anthropic Claude (claude-sonnet-4-20250514)            |
-| Embeddings     | ChromaDB built-in all-MiniLM-L6-v2 (ONNX, local, free) |
-| Frontend       | React 18, Vite, TailwindCSS                    |
-| Infrastructure | Docker, Nginx, Cloudflare                      |
+| Layer      | Technology                                          |
+| ---------- | --------------------------------------------------- |
+| LLM        | Anthropic Claude (claude-sonnet-4-20250514)                  |
+| Embeddings | ChromaDB built-in all-MiniLM-L6-v2 (ONNX, ~80MB)  |
+| Vector DB  | ChromaDB (persistent, local storage)                |
+| Backend    | Python 3.11, FastAPI, LangChain                     |
+| Frontend   | React 18, Vite, TailwindCSS                         |
+| Deployment | Docker, AWS EC2 (Free Tier), Cloudflare Tunnel      |
+
+---
 
 ## Project Structure
 
@@ -28,46 +79,85 @@ A full-stack Retrieval-Augmented Generation (RAG) assistant for corporate docume
 .
 ├── backend/
 │   ├── app/
-│   │   ├── main.py              # FastAPI application & routes
-│   │   ├── config.py            # Settings & environment variables
-│   │   ├── models.py            # Pydantic models
-│   │   ├── document_processor.py # PDF/DOCX/TXT parsing & chunking
-│   │   ├── vector_store.py      # ChromaDB operations
-│   │   └── rag_chain.py         # RAG pipeline & hallucination guard
+│   │   ├── config.py              # Settings (env vars, defaults)
+│   │   ├── main.py                # FastAPI app & API routes
+│   │   ├── models.py              # Pydantic request/response schemas
+│   │   ├── document_processor.py  # PDF/DOCX/TXT parsing & chunking
+│   │   ├── vector_store.py        # ChromaDB wrapper, hybrid search
+│   │   └── rag_chain.py           # RAG pipeline, hallucination check
 │   ├── requirements.txt
-│   ├── Dockerfile
 │   └── .env.example
 ├── frontend/
 │   ├── src/
-│   │   ├── App.jsx              # Main layout
-│   │   ├── api.js               # API client
+│   │   ├── App.jsx                # Main layout (sidebar + chat)
+│   │   ├── api.js                 # API client (axios)
 │   │   └── components/
-│   │       ├── DocumentPanel.jsx # Upload & document management
-│   │       └── ChatPanel.jsx    # Chat interface with sources
+│   │       ├── DocumentPanel.jsx  # Upload, text input, chunk settings
+│   │       └── ChatPanel.jsx      # Chat UI, sources, confidence
 │   ├── package.json
-│   ├── vite.config.js
-│   └── Dockerfile
-├── nginx/
-│   ├── nginx.conf               # Main Nginx config
-│   └── conf.d/default.conf      # Reverse proxy for alperyasemin.com
-├── docker-compose.yml
-└── README.md
+│   └── vite.config.js
+├── infra/
+│   ├── main.tf                    # Terraform: EC2 + security group
+│   ├── user-data.sh               # EC2 cloud-init script
+│   └── terraform.tfvars.example
+├── Dockerfile                     # Multi-stage: build frontend + serve with backend
+├── docker-compose.yml             # Single container deployment
+└── .github/
+    └── copilot-instructions.md
 ```
 
-## Quick Start
+---
+
+## API Endpoints
+
+| Method   | Path                      | Description                         |
+| -------- | ------------------------- | ----------------------------------- |
+| `GET`    | `/api/health`             | Health check + document/chunk count |
+| `GET`    | `/api/config`             | Default chunk size & overlap        |
+| `GET`    | `/api/documents`          | List all uploaded documents         |
+| `POST`   | `/api/documents/upload`   | Upload a file (PDF/DOCX/TXT)        |
+| `POST`   | `/api/documents/text`     | Submit plain text as a document     |
+| `DELETE` | `/api/documents/{doc_id}` | Delete a document and its chunks    |
+| `POST`   | `/api/chat`               | Ask a question, get cited answer    |
+
+### Example: Ask a Question
+
+```bash
+curl -X POST https://rag.alperyasemin.com/api/chat \
+  -H "Content-Type: application/json" \
+  -d '{"question": "What is the revenue for Q3?"}'
+```
+
+Response:
+```json
+{
+  "answer": "According to the financial report, Q3 revenue was $4.2M...",
+  "sources": [
+    {
+      "document_name": "financial-report-2025.pdf",
+      "page_number": 12,
+      "content_preview": "Third quarter revenue reached $4.2 million..."
+    }
+  ],
+  "confidence": "high"
+}
+```
+
+---
+
+## Local Development
 
 ### Prerequisites
-
 - Python 3.11+
 - Node.js 18+
-- Anthropic API key
+- [Anthropic API key](https://console.anthropic.com/)
 
-### 1. Backend Setup
+### Backend
 
 ```bash
 cd backend
 cp .env.example .env
-# Edit .env and set your ANTHROPIC_API_KEY
+# Edit .env and add your ANTHROPIC_API_KEY
 
 python -m venv .venv
 source .venv/bin/activate
@@ -76,144 +166,104 @@ pip install -r requirements.txt
 uvicorn app.main:app --reload --port 8000
 ```
 
-### 2. Frontend Setup
+### Frontend
 
 ```bash
 cd frontend
 npm install
 npm run dev
+# Opens at http://localhost:3000, proxies /api to :8000
 ```
 
-The app will be available at `http://localhost:3000` with API proxied to port 8000.
+---
 
-### 3. Docker Deployment (Production)
+## Docker Deployment
 
 ```bash
-# Set your Anthropic API key in backend/.env
-cp backend/.env.example backend/.env
+# Set your API key
+echo "ANTHROPIC_API_KEY=sk-ant-..." > backend/.env
 
-# Build and start all services
+# Build and run
 docker compose up -d --build
 
-# The app will be available on port 80
+# App is available at http://localhost:8000
 ```
 
-## Deployment on rag.alperyasemin.com
+The Dockerfile uses a multi-stage build:
+1. **Stage 1**: Builds the React frontend with `npm ci && npm run build`
+2. **Stage 2**: Installs Python dependencies, copies the built frontend into `./static`, and runs FastAPI which serves both the API and the SPA
 
-Deployed on **AWS EC2 Free Tier** with **Cloudflare Tunnel** (no open ports needed, free SSL).
+---
 
-### Prerequisites
+## Production Deployment (AWS + Cloudflare)
 
-- AWS account (Free Tier eligible)
-- Cloudflare account with `alperyasemin.com` domain
+The project runs on AWS EC2 Free Tier with Cloudflare Tunnel for HTTPS.
 
-### Step 1: Launch EC2 Instance
-
-1. Go to [AWS Console](https://console.aws.amazon.com/ec2) → **Launch Instance**
-2. Settings:
-   - **Name**: `rag-assistant`
-   - **AMI**: Ubuntu 22.04 LTS (Free Tier eligible)
-   - **Instance type**: `t2.micro` (Free Tier — 1 vCPU, 1GB RAM)
-   - **Key pair**: Create or select an existing key pair
-   - **Security Group**: Allow only **SSH (port 22)** — no other ports needed (Cloudflare Tunnel handles everything)
-   - **Storage**: 20 GB gp3 (Free Tier allows up to 30GB)
-3. Click **Launch Instance**
-
-### Step 2: SSH & Run Setup Script
+### Infrastructure with Terraform
 
 ```bash
-ssh -i your-key.pem ubuntu@<EC2_PUBLIC_IP>
+cd infra
+cp terraform.tfvars.example terraform.tfvars
+# Edit terraform.tfvars with your values
 
-# Download and run setup script
-curl -fsSL https://raw.githubusercontent.com/alperya/rag-assisstant/main/deploy/setup-ec2.sh | bash
-
-# Log out and back in for Docker group permissions
-exit
-ssh -i your-key.pem ubuntu@<EC2_PUBLIC_IP>
+terraform init
+terraform apply
 ```
 
-### Step 3: Configure & Build
+This creates:
+- EC2 t2.micro instance (Free Tier, 20GB gp3)
+- Security group with SSH-only access (Cloudflare Tunnel handles HTTP)
+- Cloud-init script that installs Docker, clones the repo, and starts the app
+
+### Cloudflare Tunnel Setup
+
+After EC2 is running:
 
 ```bash
-cd /opt/rag-assistant
+# SSH into EC2
+ssh -i your-key.pem ubuntu@<EC2_IP>
 
-# Set your Anthropic API key
-nano backend/.env
-
-# Build and start (first build takes ~5 min)
-docker compose -f docker-compose.prod.yml up -d --build
-
-# Verify it's running
-curl http://localhost:8000/api/health
-```
-
-### Step 4: Set Up Cloudflare Tunnel
-
-```bash
-# 1. Login to Cloudflare (opens browser link to authorize)
+# Authenticate with Cloudflare
 cloudflared tunnel login
 
-# 2. Create tunnel
+# Create tunnel
 cloudflared tunnel create rag-assistant
 
-# 3. Copy and edit config (replace <TUNNEL_ID> with actual ID from step 2)
-mkdir -p ~/.cloudflared
-cp /opt/rag-assistant/deploy/cloudflared-config.yml ~/.cloudflared/config.yml
-nano ~/.cloudflared/config.yml
+# Route DNS
+cloudflared tunnel route dns rag-assistant rag.yourdomain.com
 
-# 4. Create DNS route (auto-adds CNAME in Cloudflare)
-cloudflared tunnel route dns rag-assistant rag.alperyasemin.com
+# Create config
+cat > /etc/cloudflared/config.yml << EOF
+tunnel: <TUNNEL_ID>
+credentials-file: /home/ubuntu/.cloudflared/<TUNNEL_ID>.json
+ingress:
+  - hostname: rag.yourdomain.com
+    service: http://localhost:8000
+  - service: http_status:404
+EOF
 
-# 5. Install as system service & start
+# Install as service
 sudo cloudflared service install
-sudo systemctl start cloudflared
 sudo systemctl enable cloudflared
+sudo systemctl start cloudflared
 ```
 
-### Step 5: Verify
-
-Your app is now live at **https://rag.alperyasemin.com** 🎉
-
-```bash
-# Check tunnel status
-sudo systemctl status cloudflared
-
-# Check app status
-docker compose -f docker-compose.prod.yml ps
-
-# View logs
-docker compose -f docker-compose.prod.yml logs -f
-```
-
-### Updating the App
-
-```bash
-cd /opt/rag-assistant
-git pull
-docker compose -f docker-compose.prod.yml up -d --build
-```
-
-## API Endpoints
-
-| Method   | Endpoint                    | Description                  |
-| -------- | --------------------------- | ---------------------------- |
-| `GET`    | `/api/health`               | Health check                 |
-| `POST`   | `/api/documents/upload`     | Upload a document            |
-| `GET`    | `/api/documents`            | List uploaded documents      |
-| `DELETE` | `/api/documents/{doc_id}`   | Delete a document            |
-| `POST`   | `/api/chat`                 | Ask a question               |
+---
 
 ## Environment Variables
 
-| Variable             | Default                    | Description                       |
-| -------------------- | -------------------------- | --------------------------------- |
-| `ANTHROPIC_API_KEY`  | —                          | Your Anthropic API key (required) |
-| `LLM_MODEL`          | `claude-sonnet-4-20250514`         | Claude model for answers          |
-| `EMBEDDING_MODEL`    | `all-MiniLM-L6-v2`        | ChromaDB default embedding model  |
-| `CHUNK_SIZE`         | `1500`                     | Text chunk size (chars)           |
-| `CHUNK_OVERLAP`      | `300`                      | Chunk overlap (chars)             |
-| `MAX_FILE_SIZE_MB`   | `50`                       | Max upload file size              |
+| Variable            | Default                | Description                    |
+| ------------------- | ---------------------- | ------------------------------ |
+| `ANTHROPIC_API_KEY` | *(required)*           | Anthropic API key              |
+| `CHROMA_PERSIST_DIR`| `./chroma_data`        | ChromaDB storage directory     |
+| `UPLOAD_DIR`        | `./uploads`            | Uploaded files directory       |
+| `MAX_FILE_SIZE_MB`  | `50`                   | Maximum upload file size       |
+| `CHUNK_SIZE`        | `1500`                 | Default text chunk size        |
+| `CHUNK_OVERLAP`     | `300`                  | Default chunk overlap          |
+| `LLM_MODEL`        | `claude-sonnet-4-20250514`    | Anthropic model to use         |
+
+---
 
 ## License
 
-Private project.
+MIT

@@ -34,7 +34,7 @@ cp backend/.env.example backend/.env
 sed -i "s|sk-ant-your-api-key-here|${anthropic_api_key}|g" backend/.env
 
 # --- 5. Build and start ---
-docker compose -f docker-compose.prod.yml up -d --build
+docker compose -f docker-compose.yml up -d --build
 
 # --- 6. Prepare cloudflared config template ---
 mkdir -p /home/ubuntu/.cloudflared

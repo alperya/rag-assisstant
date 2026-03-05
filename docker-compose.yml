@@ -1,13 +1,18 @@
+# Single container deployment (backend serves frontend static files)
 services:
-  backend:
-    build: ./backend
-    container_name: rag-backend
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: rag-assistant
     restart: unless-stopped
     env_file:
       - ./backend/.env
+    environment:
+      - CHROMA_PERSIST_DIR=/data/chroma_data
+      - UPLOAD_DIR=/data/uploads
     volumes:
-      - chroma_data:/app/chroma_data
-      - uploads:/app/uploads
+      - rag_data:/data
     ports:
       - "8000:8000"
     healthcheck:
@@ -16,29 +21,5 @@ services:
       timeout: 10s
       retries: 3
 
-  frontend:
-    build: ./frontend
-    container_name: rag-frontend
-    restart: unless-stopped
-    ports:
-      - "3000:80"
-    depends_on:
-      - backend
-
-  nginx:
-    image: nginx:alpine
-    container_name: rag-nginx
-    restart: unless-stopped
-    ports:
-      - "80:80"
-      - "443:443"
-    volumes:
-      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
-      - ./nginx/conf.d:/etc/nginx/conf.d:ro
-    depends_on:
-      - backend
-      - frontend
-
 volumes:
-  chroma_data:
-  uploads:
+  rag_data:
