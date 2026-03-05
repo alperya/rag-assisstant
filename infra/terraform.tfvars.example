@@ -1,0 +1,8 @@
+# AWS region
+aws_region = "eu-central-1"
+
+# EC2 key pair name (must already exist in AWS)
+key_name = "your-key-pair-name"
+
+# Anthropic API key
+anthropic_api_key = "sk-ant-your-api-key-here"
