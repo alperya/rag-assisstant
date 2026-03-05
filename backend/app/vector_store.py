@@ -129,6 +129,51 @@ class VectorStoreManager:
         except Exception:
             return False
 
+    def get_all_document_metadata(self) -> list[dict]:
+        """Scan ChromaDB and return unique document metadata for registry rebuild."""
+        try:
+            collection = self.client.get_collection("documents")
+            count = collection.count()
+            if count == 0:
+                return []
+
+            results = collection.get(
+                limit=count,
+                include=["metadatas"],
+            )
+
+            # Group chunks by doc_id
+            doc_map: dict[str, dict] = {}
+            for meta in results["metadatas"] or []:
+                doc_id = meta.get("doc_id")
+                if not doc_id:
+                    continue
+
+                if doc_id not in doc_map:
+                    doc_map[doc_id] = {
+                        "id": doc_id,
+                        "filename": meta.get("source", "Unknown"),
+                        "file_type": meta.get("file_type", "text"),
+                        "page_count": 0,
+                        "chunk_count": 0,
+                        "uploaded_at": meta.get("uploaded_at", ""),
+                        "size_bytes": int(meta.get("size_bytes", 0)),
+                    }
+
+                doc_map[doc_id]["chunk_count"] += 1
+                page = meta.get("page")
+                if page is not None:
+                    try:
+                        p = int(page)
+                        if p > doc_map[doc_id]["page_count"]:
+                            doc_map[doc_id]["page_count"] = p
+                    except (ValueError, TypeError):
+                        pass
+
+            return list(doc_map.values())
+        except Exception:
+            return []
+
     def get_collection_count(self) -> int:
         """Get total number of chunks in the store."""
         try:

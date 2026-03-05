@@ -44,6 +44,19 @@ async def startup():
     vector_store = VectorStoreManager()
     rag_chain = RAGChain(vector_store)
 
+    # Rebuild document registry from persisted ChromaDB data
+    for doc_meta in vector_store.get_all_document_metadata():
+        doc_info = DocumentInfo(
+            id=doc_meta["id"],
+            filename=doc_meta["filename"],
+            file_type=doc_meta["file_type"],
+            page_count=doc_meta["page_count"] or None,
+            chunk_count=doc_meta["chunk_count"],
+            uploaded_at=doc_meta["uploaded_at"] or "restored",
+            size_bytes=doc_meta["size_bytes"],
+        )
+        document_registry[doc_info.id] = doc_info
+
 
 ALLOWED_EXTENSIONS = {".pdf", ".docx", ".txt"}
 
@@ -108,6 +121,12 @@ async def upload_document(
             file_path, file.filename, chunk_size, chunk_overlap
         )
 
+        # Enrich chunk metadata with upload info for persistence
+        uploaded_at = datetime.now(timezone.utc).isoformat()
+        for chunk in chunks:
+            chunk.metadata["uploaded_at"] = uploaded_at
+            chunk.metadata["size_bytes"] = size_bytes
+
         # Add to vector store
         vector_store.add_documents(chunks)
 
@@ -118,7 +137,7 @@ async def upload_document(
             file_type=ext.lstrip("."),
             page_count=page_count,
             chunk_count=len(chunks),
-            uploaded_at=datetime.now(timezone.utc).isoformat(),
+            uploaded_at=uploaded_at,
             size_bytes=size_bytes,
         )
         document_registry[doc_id] = doc_info
@@ -154,6 +173,13 @@ async def add_text_document(request: TextInputRequest):
             chunk_overlap=request.chunk_overlap,
         )
 
+        # Enrich chunk metadata with upload info for persistence
+        uploaded_at = datetime.now(timezone.utc).isoformat()
+        size_bytes = len(request.content.encode("utf-8"))
+        for chunk in chunks:
+            chunk.metadata["uploaded_at"] = uploaded_at
+            chunk.metadata["size_bytes"] = size_bytes
+
         vector_store.add_documents(chunks)
 
         doc_info = DocumentInfo(
@@ -162,8 +188,8 @@ async def add_text_document(request: TextInputRequest):
             file_type="text",
             page_count=page_count,
             chunk_count=len(chunks),
-            uploaded_at=datetime.now(timezone.utc).isoformat(),
-            size_bytes=len(request.content.encode("utf-8")),
+            uploaded_at=uploaded_at,
+            size_bytes=size_bytes,
         )
         document_registry[doc_id] = doc_info
 
@@ -194,7 +220,7 @@ async def delete_document(doc_id: str):
 @app.post("/api/chat", response_model=ChatResponse)
 async def chat(request: ChatRequest):
     """Ask a question about uploaded documents."""
-    if not document_registry:
+    if not document_registry and vector_store.get_collection_count() == 0:
         raise HTTPException(
             status_code=400,
             detail="No documents uploaded. Please upload at least one document first.",
