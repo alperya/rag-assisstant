@@ -40,7 +40,8 @@ aws ecr describe-repositories --repository-names "${ECR_REPO}" --region "${REGIO
 
 # ─── 3. Build & Push Docker Image ────────────────────────────────────────────
 echo "▶ Building Lambda container image..."
-docker build --platform linux/amd64 -f Dockerfile.lambda -t "${ECR_REPO}:latest" .
+docker build --platform linux/amd64 --provenance=false --sbom=false \
+  -f Dockerfile.lambda -t "${ECR_REPO}:latest" .
 
 echo "▶ Logging in to ECR..."
 aws ecr get-login-password --region "${REGION}" \
