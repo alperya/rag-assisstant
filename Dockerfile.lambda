@@ -26,6 +26,8 @@ ENV AWS_LWA_READINESS_CHECK_PATH=/api/health
 ENV AWS_LWA_INVOKE_MODE=BUFFERED
 
 # Lambda paths (writable /tmp)
+# HOME must point to /tmp so ONNX runtime + model cache can write there
+ENV HOME=/tmp
 ENV CHROMA_PERSIST_DIR=/tmp/chroma_data
 ENV UPLOAD_DIR=/tmp/uploads
 
