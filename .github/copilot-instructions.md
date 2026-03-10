@@ -6,14 +6,15 @@ A full-stack RAG (Retrieval-Augmented Generation) assistant for corporate docume
 ## Tech Stack
 - **Backend**: Python 3.11+, FastAPI, LangChain, ChromaDB, Anthropic Claude API
 - **Frontend**: React 18 + Vite, TailwindCSS
-- **Infrastructure**: Docker, Nginx, Cloudflare DNS
-- **Domain**: alperyasemin.com
+- **Infrastructure**: AWS Lambda (container image via ECR), API Gateway, S3, Cloudflare Pages
+- **Domain**: rag.alperyasemin.com
 
 ## Architecture
 - Left panel: Document upload and management
 - Right panel: Chat interface with streaming responses
 - Source citations with document name and page number
 - Hallucination guardrail: answers only from uploaded documents
+- ChromaDB data persisted to S3 for Lambda cold-start recovery
 
 ## Development Rules
 - All code and UI in English

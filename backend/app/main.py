@@ -2,12 +2,9 @@ import os
 import uuid
 import logging
 from datetime import datetime, timezone
-from pathlib import Path
 
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
 
 from app.config import get_settings
 from app.models import DocumentInfo, ChatRequest, ChatResponse, DeleteResponse, TextInputRequest
@@ -262,17 +259,3 @@ async def chat(request: ChatRequest):
             status_code=500, detail=f"Error generating answer: {str(e)}"
         )
 
-
-# --- Serve frontend static files in production ---
-STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
-
-if STATIC_DIR.is_dir():
-    app.mount("/assets", StaticFiles(directory=STATIC_DIR / "assets"), name="assets")
-
-    @app.get("/{full_path:path}")
-    async def serve_spa(full_path: str):
-        """Serve React SPA — any non-API route returns index.html."""
-        file_path = STATIC_DIR / full_path
-        if file_path.is_file():
-            return FileResponse(file_path)
-        return FileResponse(STATIC_DIR / "index.html")

@@ -65,8 +65,3 @@ export const askQuestion = async (question, documentIds = null) => {
   const response = await api.post('/chat', payload);
   return response.data;
 };
-
-export const healthCheck = async () => {
-  const response = await api.get('/health');
-  return response.data;
-};

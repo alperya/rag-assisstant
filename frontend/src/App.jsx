@@ -7,7 +7,6 @@ import { BookOpenCheck, FileText, MessageSquare } from 'lucide-react';
 export default function App() {
   const [documents, setDocuments] = useState([]);
   const [activeTab, setActiveTab] = useState('chat'); // mobile tab: 'chat' | 'docs'
-  const [sidebarOpen, setSidebarOpen] = useState(true);
 
   const fetchDocuments = useCallback(async () => {
     try {

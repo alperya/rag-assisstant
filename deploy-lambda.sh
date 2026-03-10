@@ -8,6 +8,7 @@ REGION="eu-central-1"
 FUNCTION_NAME="rag-assistant"
 ECR_REPO="rag-assistant"
 ROLE_NAME="rag-assistant-lambda-role"
+API_NAME="rag-assistant-api"
 MEMORY_MB=1024
 TIMEOUT_SEC=120
 EPHEMERAL_MB=2048          # /tmp size for ChromaDB + ONNX model
@@ -40,7 +41,7 @@ aws ecr describe-repositories --repository-names "${ECR_REPO}" --region "${REGIO
 
 # ─── 3. Build & Push Docker Image ────────────────────────────────────────────
 echo "▶ Building Lambda container image..."
-docker build --platform linux/amd64 --provenance=false --sbom=false \
+docker build --platform linux/amd64 --provenance=false \
   -f Dockerfile.lambda -t "${ECR_REPO}:latest" .
 
 echo "▶ Logging in to ECR..."
@@ -50,7 +51,6 @@ aws ecr get-login-password --region "${REGION}" \
 echo "▶ Pushing image to ECR..."
 docker tag "${ECR_REPO}:latest" "${ECR_URI}:latest"
 docker push "${ECR_URI}:latest"
-IMAGE_DIGEST=$(docker inspect --format='{{index .RepoDigests 0}}' "${ECR_URI}:latest" 2>/dev/null || echo "${ECR_URI}:latest")
 
 # ─── 4. IAM Role ─────────────────────────────────────────────────────────────
 echo "▶ Setting up IAM role..."
@@ -71,7 +71,6 @@ aws iam attach-role-policy \
   --role-name "${ROLE_NAME}" \
   --policy-arn arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole 2>/dev/null || true
 
-# S3 read/write for ChromaDB sync
 S3_POLICY=$(cat <<EOF
 {
   "Version":"2012-10-17",
@@ -95,13 +94,12 @@ echo "  Role ARN: ${ROLE_ARN}"
 # ─── 5. Lambda Function ──────────────────────────────────────────────────────
 echo "▶ Deploying Lambda function..."
 
-# Read ANTHROPIC_API_KEY from backend/.env
 if [ -f backend/.env ]; then
   ANTHROPIC_API_KEY=$(grep -E '^ANTHROPIC_API_KEY=' backend/.env | cut -d'=' -f2- | tr -d '"' | tr -d "'")
 fi
 : "${ANTHROPIC_API_KEY:?Set ANTHROPIC_API_KEY in backend/.env or export it}"
 
-ENV_VARS="Variables={S3_BUCKET=${S3_BUCKET},CHROMA_PERSIST_DIR=/tmp/chroma_data,UPLOAD_DIR=/tmp/uploads,ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY},MAX_FILE_SIZE_MB=4}"
+ENV_VARS="Variables={HOME=/tmp,S3_BUCKET=${S3_BUCKET},CHROMA_PERSIST_DIR=/tmp/chroma_data,UPLOAD_DIR=/tmp/uploads,ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY},MAX_FILE_SIZE_MB=4}"
 
 if aws lambda get-function --function-name "${FUNCTION_NAME}" --region "${REGION}" 2>/dev/null; then
   echo "  Updating existing function..."
@@ -110,7 +108,6 @@ if aws lambda get-function --function-name "${FUNCTION_NAME}" --region "${REGION
     --image-uri "${ECR_URI}:latest" \
     --region "${REGION}" > /dev/null
 
-  # Wait for update to complete
   aws lambda wait function-updated --function-name "${FUNCTION_NAME}" --region "${REGION}"
 
   aws lambda update-function-configuration \
@@ -138,27 +135,54 @@ else
   aws lambda wait function-active --function-name "${FUNCTION_NAME}" --region "${REGION}"
 fi
 
-# ─── 6. Function URL ─────────────────────────────────────────────────────────
-echo "▶ Configuring Function URL..."
-aws lambda create-function-url-config \
-  --function-name "${FUNCTION_NAME}" \
-  --auth-type NONE \
-  --cors '{"AllowOrigins":["*"],"AllowMethods":["*"],"AllowHeaders":["*"],"MaxAge":86400}' \
-  --region "${REGION}" 2>/dev/null || true
+# ─── 6. API Gateway (HTTP API) ───────────────────────────────────────────────
+echo "▶ Configuring API Gateway..."
 
-# Allow public invocation
-aws lambda add-permission \
-  --function-name "${FUNCTION_NAME}" \
-  --statement-id FunctionURLAllowPublicAccess \
-  --action lambda:InvokeFunctionUrl \
-  --principal "*" \
-  --function-url-auth-type NONE \
-  --region "${REGION}" 2>/dev/null || true
+LAMBDA_ARN=$(aws lambda get-function --function-name "${FUNCTION_NAME}" --region "${REGION}" \
+  --query Configuration.FunctionArn --output text)
 
-FUNCTION_URL=$(aws lambda get-function-url-config \
-  --function-name "${FUNCTION_NAME}" \
-  --region "${REGION}" \
-  --query FunctionUrl --output text)
+API_ID=$(aws apigatewayv2 get-apis --region "${REGION}" \
+  --query "Items[?Name=='${API_NAME}'].ApiId | [0]" --output text 2>/dev/null)
+
+if [ "${API_ID}" = "None" ] || [ -z "${API_ID}" ]; then
+  API_ID=$(aws apigatewayv2 create-api \
+    --name "${API_NAME}" \
+    --protocol-type HTTP \
+    --cors-configuration '{"AllowOrigins":["*"],"AllowMethods":["*"],"AllowHeaders":["*"],"MaxAge":86400}' \
+    --region "${REGION}" \
+    --query ApiId --output text)
+
+  INTEGRATION_ID=$(aws apigatewayv2 create-integration \
+    --api-id "${API_ID}" \
+    --integration-type AWS_PROXY \
+    --integration-uri "${LAMBDA_ARN}" \
+    --payload-format-version "2.0" \
+    --region "${REGION}" \
+    --query IntegrationId --output text)
+
+  aws apigatewayv2 create-route \
+    --api-id "${API_ID}" \
+    --route-key '$default' \
+    --target "integrations/${INTEGRATION_ID}" \
+    --region "${REGION}" > /dev/null
+
+  aws apigatewayv2 create-stage \
+    --api-id "${API_ID}" \
+    --stage-name '$default' \
+    --auto-deploy \
+    --region "${REGION}" > /dev/null
+
+  aws lambda add-permission \
+    --function-name "${FUNCTION_NAME}" \
+    --statement-id apigateway-invoke \
+    --action lambda:InvokeFunction \
+    --principal apigateway.amazonaws.com \
+    --source-arn "arn:aws:execute-api:${REGION}:${ACCOUNT_ID}:${API_ID}/*" \
+    --region "${REGION}" > /dev/null 2>&1
+fi
+
+API_ENDPOINT=$(aws apigatewayv2 get-api --api-id "${API_ID}" --region "${REGION}" \
+  --query ApiEndpoint --output text)
 
 # ─── Done ─────────────────────────────────────────────────────────────────────
 echo ""
@@ -166,26 +190,10 @@ echo "==========================================="
 echo "  ✅  Lambda deployed successfully!"
 echo "==========================================="
 echo ""
-echo "  Function URL : ${FUNCTION_URL}"
+echo "  API Gateway  : ${API_ENDPOINT}"
 echo "  S3 Bucket    : ${S3_BUCKET}"
 echo "  Region       : ${REGION}"
 echo ""
-echo "───────────────────────────────────────────"
-echo "  Next steps:"
-echo ""
-echo "  1. Deploy frontend to Cloudflare Pages:"
-echo "     - Go to: dash.cloudflare.com → Pages → Create project"
-echo "     - Connect GitHub repo: alperya/rag-assisstant"
-echo "     - Build command:  cd frontend && npm install && npm run build"
-echo "     - Output dir:     frontend/dist"
-echo "     - Env variable:   VITE_API_URL=${FUNCTION_URL}"
-echo ""
-echo "  2. Set custom domain:"
-echo "     - Pages → Custom domains → Add: rag.alperyasemin.com"
-echo "     - Cloudflare will auto-configure DNS"
-echo ""
-echo "  3. Remove old Cloudflare Tunnel DNS record"
-echo "     (if rag.alperyasemin.com still points to the tunnel)"
-echo ""
-echo "  4. Stop / terminate EC2 instance to stop charges"
+echo "  Next: Deploy frontend to Cloudflare Pages"
+echo "  with VITE_API_URL=${API_ENDPOINT}"
 echo "==========================================="

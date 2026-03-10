@@ -1,6 +1,5 @@
 import os
 import uuid
-from typing import Optional
 
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_core.documents import Document
@@ -52,7 +51,7 @@ class DocumentProcessor:
 
         return documents, page_count
 
-    def process_docx(self, file_path: str, filename: str) -> tuple[list[Document], Optional[int]]:
+    def process_docx(self, file_path: str, filename: str) -> tuple[list[Document], int | None]:
         """Extract text from DOCX files."""
         doc = docx.Document(file_path)
         documents = []
@@ -94,7 +93,7 @@ class DocumentProcessor:
 
         return documents, page_estimate
 
-    def process_txt(self, file_path: str, filename: str) -> tuple[list[Document], Optional[int]]:
+    def process_txt(self, file_path: str, filename: str) -> tuple[list[Document], int | None]:
         """Extract text from TXT files."""
         with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
             text = f.read()
@@ -146,7 +145,7 @@ class DocumentProcessor:
         filename: str,
         chunk_size: int | None = None,
         chunk_overlap: int | None = None,
-    ) -> tuple[list[Document], Optional[int], str]:
+    ) -> tuple[list[Document], int | None, str]:
         """Process a file based on its extension."""
         ext = os.path.splitext(filename)[1].lower()
 

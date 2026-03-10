@@ -66,10 +66,42 @@ A full-stack **Retrieval-Augmented Generation** assistant for corporate document
 | ---------- | --------------------------------------------------- |
 | LLM        | Anthropic Claude (claude-sonnet-4-20250514)                  |
 | Embeddings | ChromaDB built-in all-MiniLM-L6-v2 (ONNX, ~80MB)  |
-| Vector DB  | ChromaDB (persistent, local storage)                |
+| Vector DB  | ChromaDB (persistent, S3-synced)                    |
 | Backend    | Python 3.11, FastAPI, LangChain                     |
 | Frontend   | React 18, Vite, TailwindCSS                         |
-| Deployment | Docker, AWS EC2 (Free Tier), Cloudflare Tunnel      |
+| Hosting    | AWS Lambda + API Gateway (backend), Cloudflare Pages (frontend) |
+| Storage    | AWS S3 (ChromaDB persistence across Lambda cold starts) |
+
+---
+
+## Architecture
+
+```
+                    ┌──────────────────────┐
+                    │   rag.alperyasemin.com│
+                    │   (Cloudflare DNS)    │
+                    └──────┬───────────────┘
+                           │
+              ┌────────────┴────────────┐
+              │                         │
+     ┌────────▼────────┐   ┌───────────▼───────────┐
+     │ Cloudflare Pages │   │   API Gateway (HTTP)   │
+     │   React SPA      │   │   CORS + $default route│
+     │   (static)       │   └───────────┬───────────┘
+     └──────────────────┘               │
+                                ┌───────▼──────────┐
+                                │   AWS Lambda      │
+                                │   FastAPI + ONNX  │
+                                │   (container img) │
+                                └───────┬──────────┘
+                                        │
+                               ┌────────┴────────┐
+                               │                  │
+                        ┌──────▼──────┐  ┌───────▼──────┐
+                        │ ChromaDB    │  │   AWS S3      │
+                        │ /tmp/chroma │  │   Backup      │
+                        └─────────────┘  └──────────────┘
+```
 
 ---
 
@@ -84,9 +116,9 @@ A full-stack **Retrieval-Augmented Generation** assistant for corporate document
 │   │   ├── models.py              # Pydantic request/response schemas
 │   │   ├── document_processor.py  # PDF/DOCX/TXT parsing & chunking
 │   │   ├── vector_store.py        # ChromaDB wrapper, hybrid search
-│   │   └── rag_chain.py           # RAG pipeline, hallucination check
-│   ├── requirements.txt
-│   └── .env.example
+│   │   ├── rag_chain.py           # RAG pipeline, hallucination check
+│   │   └── s3_sync.py             # S3 ↔ ChromaDB data sync (Lambda)
+│   └── requirements.txt
 ├── frontend/
 │   ├── src/
 │   │   ├── App.jsx                # Main layout (sidebar + chat)
@@ -96,12 +128,8 @@ A full-stack **Retrieval-Augmented Generation** assistant for corporate document
 │   │       └── ChatPanel.jsx      # Chat UI, sources, confidence
 │   ├── package.json
 │   └── vite.config.js
-├── infra/
-│   ├── main.tf                    # Terraform: EC2 + security group
-│   ├── user-data.sh               # EC2 cloud-init script
-│   └── terraform.tfvars.example
-├── Dockerfile                     # Multi-stage: build frontend + serve with backend
-├── docker-compose.yml             # Single container deployment
+├── Dockerfile.lambda              # Lambda container image
+├── deploy-lambda.sh               # One-click Lambda deployment script
 └── .github/
     └── copilot-instructions.md
 ```
@@ -177,90 +205,64 @@ npm run dev
 
 ---
 
-## Docker Deployment
+## Deployment
+
+The app runs serverlessly on AWS (free tier eligible):
+
+- **Backend**: AWS Lambda (container image via ECR) behind API Gateway HTTP API
+- **Frontend**: Cloudflare Pages (static React build)
+- **Persistence**: ChromaDB data compressed and synced to S3 on every write, restored on cold start
+
+### Deploy Backend (Lambda)
 
 ```bash
-# Set your API key
-echo "ANTHROPIC_API_KEY=sk-ant-..." > backend/.env
+# Requires: aws-cli v2, docker
+# Set ANTHROPIC_API_KEY in backend/.env
 
-# Build and run
-docker compose up -d --build
-
-# App is available at http://localhost:8000
+./deploy-lambda.sh
 ```
 
-The Dockerfile uses a multi-stage build:
-1. **Stage 1**: Builds the React frontend with `npm ci && npm run build`
-2. **Stage 2**: Installs Python dependencies, copies the built frontend into `./static`, and runs FastAPI which serves both the API and the SPA
+The script automatically:
+1. Creates an S3 bucket for ChromaDB persistence
+2. Creates an ECR repository and pushes the container image
+3. Sets up IAM role with Lambda + S3 permissions
+4. Creates/updates the Lambda function (1024MB, 120s timeout, 2GB /tmp)
+5. Creates an API Gateway HTTP API with CORS
 
----
-
-## Production Deployment (AWS + Cloudflare)
-
-The project runs on AWS EC2 Free Tier with Cloudflare Tunnel for HTTPS.
-
-### Infrastructure with Terraform
+### Deploy Frontend (Cloudflare Pages)
 
 ```bash
-cd infra
-cp terraform.tfvars.example terraform.tfvars
-# Edit terraform.tfvars with your values
-
-terraform init
-terraform apply
+cd frontend
+npm run build
+npx wrangler pages deploy dist --project-name=rag-assistant
 ```
 
-This creates:
-- EC2 t2.micro instance (Free Tier, 20GB gp3)
-- Security group with SSH-only access (Cloudflare Tunnel handles HTTP)
-- Cloud-init script that installs Docker, clones the repo, and starts the app
-
-### Cloudflare Tunnel Setup
-
-After EC2 is running:
-
-```bash
-# SSH into EC2
-ssh -i your-key.pem ubuntu@<EC2_IP>
-
-# Authenticate with Cloudflare
-cloudflared tunnel login
-
-# Create tunnel
-cloudflared tunnel create rag-assistant
-
-# Route DNS
-cloudflared tunnel route dns rag-assistant rag.yourdomain.com
-
-# Create config
-cat > /etc/cloudflared/config.yml << EOF
-tunnel: <TUNNEL_ID>
-credentials-file: /home/ubuntu/.cloudflared/<TUNNEL_ID>.json
-ingress:
-  - hostname: rag.yourdomain.com
-    service: http://localhost:8000
-  - service: http_status:404
-EOF
-
-# Install as service
-sudo cloudflared service install
-sudo systemctl enable cloudflared
-sudo systemctl start cloudflared
-```
+Set the environment variable in Cloudflare Pages dashboard:
+- `VITE_API_URL` = your API Gateway endpoint (e.g. `https://xxxx.execute-api.eu-central-1.amazonaws.com`)
 
 ---
 
 ## Environment Variables
 
-| Variable            | Default                | Description                    |
-| ------------------- | ---------------------- | ------------------------------ |
-| `ANTHROPIC_API_KEY` | *(required)*           | Anthropic API key              |
-| `CHROMA_PERSIST_DIR`| `./chroma_data`        | ChromaDB storage directory     |
-| `UPLOAD_DIR`        | `./uploads`            | Uploaded files directory       |
-| `MAX_FILE_SIZE_MB`  | `50`                   | Maximum upload file size       |
-| `CHUNK_SIZE`        | `1500`                 | Default text chunk size        |
-| `CHUNK_OVERLAP`     | `300`                  | Default chunk overlap          |
-| `LLM_MODEL`        | `claude-sonnet-4-20250514`    | Anthropic model to use         |
+### Backend (Lambda)
+
+| Variable            | Default                  | Description                         |
+| ------------------- | ------------------------ | ----------------------------------- |
+| `ANTHROPIC_API_KEY` | *(required)*             | Anthropic API key                   |
+| `S3_BUCKET`         | `""`                     | S3 bucket for ChromaDB persistence  |
+| `HOME`              | `/tmp`                   | Writable home dir (ONNX model cache)|
+| `CHROMA_PERSIST_DIR`| `./chroma_data`          | ChromaDB storage directory          |
+| `UPLOAD_DIR`        | `./uploads`              | Uploaded files directory            |
+| `MAX_FILE_SIZE_MB`  | `50` (Lambda: `4`)       | Maximum upload file size            |
+| `CHUNK_SIZE`        | `1500`                   | Default text chunk size             |
+| `CHUNK_OVERLAP`     | `300`                    | Default chunk overlap               |
+| `LLM_MODEL`        | `claude-sonnet-4-20250514`      | Anthropic model to use              |
+
+### Frontend (Cloudflare Pages)
+
+| Variable            | Description                               |
+| ------------------- | ----------------------------------------- |
+| `VITE_API_URL`      | API Gateway endpoint URL                  |
 
 ---
 
