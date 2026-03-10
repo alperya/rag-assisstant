@@ -1,6 +1,10 @@
 import axios from 'axios';
 
-const API_BASE = '/api';
+// In Cloudflare Pages mode VITE_API_URL points to the Lambda Function URL.
+// In Docker mode (same origin) it falls back to a relative path.
+const API_BASE = import.meta.env.VITE_API_URL
+  ? `${import.meta.env.VITE_API_URL.replace(/\/+$/, '')}/api`
+  : '/api';
 
 const api = axios.create({
   baseURL: API_BASE,

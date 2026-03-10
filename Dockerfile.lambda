@@ -1,0 +1,32 @@
+# Lambda container image — uses AWS Lambda Web Adapter
+# so the existing FastAPI/uvicorn code runs unchanged.
+FROM python:3.11-slim
+
+# ---- Lambda Web Adapter (translates Lambda events → HTTP) ----
+COPY --from=public.ecr.aws/awsguru/aws-lambda-web-adapter:0.8.4 \
+     /lambda-adapter /opt/extensions/lambda-adapter
+
+WORKDIR /app
+
+# System dependencies
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    && rm -rf /var/lib/apt/lists/*
+
+# Python dependencies
+COPY backend/requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copy backend code only (frontend deployed separately on Cloudflare Pages)
+COPY backend/app ./app
+
+# Lambda Web Adapter configuration
+ENV PORT=8000
+ENV AWS_LWA_READINESS_CHECK_PATH=/api/health
+ENV AWS_LWA_INVOKE_MODE=BUFFERED
+
+# Lambda paths (writable /tmp)
+ENV CHROMA_PERSIST_DIR=/tmp/chroma_data
+ENV UPLOAD_DIR=/tmp/uploads
+
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]

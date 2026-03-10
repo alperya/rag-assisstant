@@ -1,5 +1,6 @@
 import os
 import uuid
+import logging
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -13,6 +14,8 @@ from app.models import DocumentInfo, ChatRequest, ChatResponse, DeleteResponse, 
 from app.document_processor import DocumentProcessor
 from app.vector_store import VectorStoreManager
 from app.rag_chain import RAGChain
+
+logger = logging.getLogger(__name__)
 
 app = FastAPI(
     title="RAG Assistant API",
@@ -34,13 +37,29 @@ document_registry: dict[str, DocumentInfo] = {}
 processor = DocumentProcessor()
 vector_store: VectorStoreManager | None = None
 rag_chain: RAGChain | None = None
+s3_sync = None  # Initialized only when S3_BUCKET is set
+
+
+def _sync_to_s3():
+    """Sync ChromaDB data to S3 after write operations (Lambda mode only)."""
+    if s3_sync is not None:
+        settings = get_settings()
+        s3_sync.upload(settings.chroma_persist_dir)
 
 
 @app.on_event("startup")
 async def startup():
-    global vector_store, rag_chain
+    global vector_store, rag_chain, s3_sync
     settings = get_settings()
     os.makedirs(settings.upload_dir, exist_ok=True)
+
+    # If S3_BUCKET is set, restore ChromaDB from S3 before initializing
+    if settings.s3_bucket:
+        from app.s3_sync import S3Sync
+        s3_sync = S3Sync(bucket=settings.s3_bucket)
+        s3_sync.download(settings.chroma_persist_dir)
+        logger.info("Lambda mode: S3 sync enabled (bucket=%s)", settings.s3_bucket)
+
     vector_store = VectorStoreManager()
     rag_chain = RAGChain(vector_store)
 
@@ -142,6 +161,7 @@ async def upload_document(
         )
         document_registry[doc_id] = doc_info
 
+        _sync_to_s3()
         return doc_info
 
     except Exception as e:
@@ -193,6 +213,7 @@ async def add_text_document(request: TextInputRequest):
         )
         document_registry[doc_id] = doc_info
 
+        _sync_to_s3()
         return doc_info
 
     except Exception as e:
@@ -211,6 +232,7 @@ async def delete_document(doc_id: str):
     # Remove from registry
     del document_registry[doc_id]
 
+    _sync_to_s3()
     return DeleteResponse(
         success=success,
         message="Document deleted successfully" if success else "Partial deletion",

@@ -12,6 +12,9 @@ class Settings(BaseSettings):
     chunk_overlap: int = 300
     llm_model: str = "claude-sonnet-4-20250514"
 
+    # Lambda / S3 — set S3_BUCKET to enable serverless mode
+    s3_bucket: str = ""
+
     class Config:
         env_file = ".env"
         env_file_encoding = "utf-8"
